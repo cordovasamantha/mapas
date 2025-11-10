@@ -128,13 +128,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ------------------- Utilidades principales -------------------
 
 function updateInfoBar(place) {
-  if (!infoBar) return;
+  const infoBarEl = document.getElementById('infoBar');
+  if (!infoBarEl) return;
   const name = escapeHtml(String(place.nombre || '').trim());
   const desc = escapeHtml(String(place.descripcion || '').trim());
   const content = (name || desc)
     ? `${name ? `<strong>${name}</strong>` : ''}${name && desc ? ' — ' : ''}${desc || ''}`
     : 'Selecciona un lugar para ver el nombre y descripción.';
-  infoBar.innerHTML = content;
+  infoBarEl.innerHTML = content;
 }
 
 async function fetchCsv(url) {
