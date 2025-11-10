@@ -1,0 +1,580 @@
+<!-- ===== Bloque completo para WordPress: pegar en un bloque HTML personalizado ===== -->
+<!-- 1) Cambia el valor de SHEET_CSV_URL por el enlace CSV público de tu Google Sheet -->
+<!-- 2) Publica/actualiza la página -->
+
+<!-- Leaflet CSS (CDN) -->
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+  crossorigin=""
+/>
+
+<style>
+/*
+  Estilos base para el mapa y el popup.
+  El diseño es responsivo y listo para incrustar en WordPress.
+*/
+
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+  color: #1b1b1b;
+  background: #fbf2f2; /* fondo claro solicitado */
+}
+
+.map-wrapper {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 16px;
+  box-sizing: border-box;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#map {
+  width: 70vmin; /* ~70% del lado menor de la ventana */
+  height: 70vmin; /* cuadrado */
+  margin: 0;
+}
+
+.page-title {
+  margin: 0;
+  font-size: clamp(20px, 3.6vmin, 32px);
+  font-weight: 800;
+  color: #272556;
+  text-align: center;
+}
+
+.info-bar {
+  width: 70vmin;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.85);
+  color: #272556;
+  text-align: center;
+  backdrop-filter: blur(2px);
+}
+/* Ajustes de control Leaflet para mejor visibilidad */
+.leaflet-control-attribution {
+  font-size: 12px;
+}
+
+/* Estilo del contenido del popup */
+.popup-content {
+  max-width: 320px;
+}
+
+.popup-content h3 {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+  line-height: 1.3;
+  color: #0d47a1;
+}
+
+.popup-table {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  gap: 6px 12px;
+  align-items: start;
+  margin-bottom: 10px;
+}
+
+.popup-table .label {
+  font-weight: 600;
+  color: #455a64;
+}
+
+.popup-table .value {
+  color: #263238;
+}
+
+.route-btn {
+  display: inline-block;
+  padding: 8px 12px;
+  background: #2e7d32; /* verde profesional */
+  color: #fbf2f2 !important;
+  text-decoration: none !important;
+  border-radius: 6px;
+  font-weight: 600;
+  transition: background 0.2s ease;
+}
+
+.route-btn:hover, .route-btn:focus {
+  background: #1b5e20;
+  color: #fbf2f2 !important;
+}
+
+/* Asegurar color del enlace en todos los estados y dentro del popup */
+.leaflet-popup-content .route-btn,
+.route-btn:link,
+.route-btn:visited,
+.route-btn:active {
+  color: #fbf2f2 !important;
+  text-decoration: none !important;
+}
+
+/* Responsividad: en móviles el popup usa una sola columna para mayor legibilidad */
+@media (max-width: 420px) {
+  .popup-table {
+    grid-template-columns: 1fr;
+  }
+
+  .popup-table .label {
+    color: #607d8b;
+  }
+}
+</style>
+
+<!-- Contenedor centrado del mapa -->
+<div class="map-wrapper">
+  <h1 class="page-title" aria-level="1" role="heading">Mapa Artistico</h1>
+  <div id="map" role="region" aria-label="Mapa de ubicaciones"></div>
+  <div id="infoBar" class="info-bar" aria-live="polite">Selecciona un lugar para ver el nombre y descripción.</div>
+</div>
+
+<!-- Leaflet JS (CDN) -->
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+  crossorigin=""
+></script>
+
+<!-- Lógica JS: Google Sheets CSV + Leaflet -->
+<script>
+(function(){
+  // =============== CONFIGURACIÓN ==================
+  // Modo de datos:
+  // - 'wordpress': usa un endpoint proxy WP que evita CORS (recomendado)
+  // - 'opensheet': usa JSON de https://opensheet.elk.sh (terceros)
+  // - 'csv': intenta leer CSV directo de Google (puede fallar por CORS)
+  const DATA_MODE = 'wordpress'; // 'wordpress' | 'opensheet' | 'csv'
+
+  // Si usas 'wordpress', apunta al endpoint que registraste en functions.php
+  // Ejemplo del endpoint del snippet: /wp-json/mapa/v1/sheet
+  const WP_PROXY_URL = window.location.origin + '/wp-json/mapa/v1/sheet';
+
+  // Si usas 'opensheet', define tu URL de OpenSheet (ID y nombre de pestaña)
+  // Ej: https://opensheet.elk.sh/ID_DE_HOJA/NombreDeLaPestana
+  const OPENSHEET_URL = 'https://opensheet.elk.sh/ID_DE_HOJA/NombreDeLaPestana';
+
+  // Si usas 'csv', pega aquí el CSV público (Publicar en la web -> CSV)
+  // https://docs.google.com/spreadsheets/d/e/ID_PUBLICADO/pub?gid=0&single=true&output=csv
+  const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/ID_DE_TU_HOJA/export?format=csv&gid=0';
+
+  // Color del pin
+  const PIN_COLOR = '#e21054';
+
+  // Retardo (ms) entre geocodificaciones (Nominatim)
+  const GEOCODE_DELAY_MS = 900;
+
+  // Preferencia: si hay columna combinada "Coordenadas", usarla primero
+  const PREFER_COORDINATE_FIELD = true;
+  // Forzar orden del par combinado: 'auto' | 'latlng' | 'lnglat'
+  const FORCE_COORDINATE_ORDER = 'auto';
+  // Pista opcional de límites (ej. México). Deja null si no la quieres usar.
+  // const BOUNDS_HINT = { minLat: 14, maxLat: 33, minLng: -118, maxLng: -86 };
+  const BOUNDS_HINT = null;
+  // Vista inicial (se ajustará a marcadores al cargar)
+  const INITIAL_VIEW = { center: [19.4326, -99.1332], zoom: 5 }; // CDMX aprox.
+  // =================================================
+
+  document.addEventListener('DOMContentLoaded', init);
+
+  async function init(){
+    const map = L.map('map', { scrollWheelZoom: true, zoomControl: true });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    }).addTo(map);
+
+    map.setView(INITIAL_VIEW.center, INITIAL_VIEW.zoom);
+
+    // Fijar el icono por defecto para TODOS los marcadores
+    L.Marker.prototype.options.icon = generatePinIcon(PIN_COLOR);
+
+    const markersGroup = L.featureGroup().addTo(map);
+    const infoBar = document.getElementById('infoBar');
+
+    try {
+      const rows = await loadRows();
+      const places = mapRowsToSchema(rows);
+
+      for (const place of places) {
+        const coords = await getCoordsForPlace(place);
+        if (!coords) continue;
+        const m = L.marker(coords, { icon: generatePinIcon(PIN_COLOR) })
+          .bindTooltip(place.nombre || place.direccion || 'Ubicación', { direction: 'top', offset: [0, -28] })
+          .bindPopup(createPopupHtml(place), { closeButton: true });
+        m.on('click', () => updateInfoBar(place));
+        m.addTo(markersGroup);
+      }
+
+      const bounds = markersGroup.getBounds();
+      if (bounds.isValid()) map.fitBounds(bounds.pad(0.12));
+
+      setTimeout(() => map.invalidateSize(), 100);
+      window.addEventListener('resize', () => map.invalidateSize());
+    } catch (err) {
+      console.error('Error cargando datos:', err);
+      alert('No se pudieron cargar los datos. Revisa el modo de datos (wordpress/opensheet/csv) y la URL configurada.');
+    }
+  }
+
+  // ------------------- Utilidades principales -------------------
+  function updateInfoBar(place){
+    var bar = document.getElementById('infoBar');
+    if(!bar) return;
+    var name = escapeHtml(String(place.nombre || '').trim());
+    var desc = escapeHtml(String(place.descripcion || '').trim());
+    var content = (name || desc) ? (name ? '<strong>' + name + '</strong>' : '') + (name && desc ? ' — ' : '') + (desc || '') : 'Selecciona un lugar para ver el nombre y descripción.';
+    bar.innerHTML = content;
+  }
+  async function fetchCsv(url){
+    const res = await fetch(url, { mode: 'cors', redirect: 'follow' });
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    return text;
+  }
+
+  async function fetchJson(url){
+    const res = await fetch(url, { mode: 'cors', redirect: 'follow' });
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+  }
+
+  async function loadRows(){
+    if (DATA_MODE === 'wordpress'){
+      const csv = await fetchCsv(WP_PROXY_URL);
+      return parseCsvToObjects(csv);
+    }
+    if (DATA_MODE === 'opensheet'){
+      const arr = await fetchJson(OPENSHEET_URL);
+      if(!Array.isArray(arr)) throw new Error('OpenSheet no devolvió un arreglo JSON');
+      return arr.map(rec => {
+        const norm = {}; Object.keys(rec).forEach(k => { norm[normalizeHeader(k)] = String(rec[k] ?? '').trim(); });
+        return norm;
+      });
+    }
+    const csv = await fetchCsv(SHEET_CSV_URL);
+    return parseCsvToObjects(csv);
+  }
+
+  function parseCsvToObjects(csvText){
+    const rows = parseCSV(csvText);
+    if(rows.length === 0) return [];
+    const rawHeaders = rows[0];
+    const dataRows = rows.slice(1);
+    const normalizedHeaders = rawHeaders.map(h => normalizeHeader(h));
+    return dataRows
+      .filter(r => r.some(cell => String(cell || '').trim().length > 0))
+      .map(row => {
+        const obj = {};
+        row.forEach((cell, idx) => {
+          obj[normalizedHeaders[idx] || ('col_' + idx)] = String(cell || '').trim();
+        });
+        return obj;
+      });
+  }
+
+  function mapRowsToSchema(objs){
+    const headerMap = {
+      nombre: ['nombre', 'name'],
+      direccion: ['direccion', 'dirección', 'address', 'ubicacion', 'ubicación'],
+      coordenadas: ['coordenadas', 'coordinates', 'latlon', 'lonlat', 'coord', 'ubicacion coords'],
+      descripcion: ['descripcion', 'descripción', 'description', 'detalle', 'resumen'],
+      contacto: ['contacto', 'contact', 'telefono', 'teléfono', 'email', 'correo', 'web', 'sitio', 'sitio web'],
+      horarios: ['horarios', 'horario', 'hours', 'schedule'],
+      horarios2: ['horarios 2', 'horarios2', 'hours 2', 'schedule 2'],
+      tarifaAdultos: ['tarifa adultos', 'adultos', 'tarifa general', 'precio adultos'],
+      tarifaExtranjeros: ['tarifa extranjeros', 'extranjeros', 'precio extranjeros'],
+      tarifaEstudiantes: ['tarifa estudiantes', 'estudiantes', 'precio estudiantes'],
+      latitud: ['latitud', 'lat', 'latitude'],
+      longitud: ['longitud', 'lng', 'long', 'longitude']
+    };
+
+    function pick(obj, keys){
+      for(const k of keys){
+        const nk = normalizeHeader(k);
+        if(obj[nk] != null && String(obj[nk]).trim() !== '') return String(obj[nk]).trim();
+      }
+      return '';
+    }
+
+    return objs.map(o => ({
+      nombre: pick(o, headerMap.nombre),
+      direccion: pick(o, headerMap.direccion),
+      coordenadas: pick(o, headerMap.coordenadas),
+      descripcion: pick(o, headerMap.descripcion),
+      contacto: pick(o, headerMap.contacto),
+      horarios: pick(o, headerMap.horarios),
+      horarios2: pick(o, headerMap.horarios2),
+      tarifaAdultos: pick(o, headerMap.tarifaAdultos),
+      tarifaExtranjeros: pick(o, headerMap.tarifaExtranjeros),
+      tarifaEstudiantes: pick(o, headerMap.tarifaEstudiantes),
+      latitud: pick(o, headerMap.latitud),
+      longitud: pick(o, headerMap.longitud)
+    }));
+  }
+
+  async function getCoordsForPlace(place){
+    if (PREFER_COORDINATE_FIELD) {
+      const comboPref = String(place.coordenadas || '').trim();
+      if(comboPref){
+        const parsedPref = parseCoordinatePair(comboPref);
+        if(parsedPref) return parsedPref;
+      }
+    }
+    const lat = toNumberOrNull(place.latitud);
+    const lng = toNumberOrNull(place.longitud);
+    if(lat != null && lng != null){
+      if(isValidLat(lat) && isValidLng(lng)) return [lat, lng];
+      if(isValidLat(lng) && isValidLng(lat)) return [lng, lat];
+    }
+    const combo = String(place.coordenadas || '').trim();
+    if(combo){
+      const parsed = parseCoordinatePair(combo);
+      if(parsed) return parsed;
+    }
+    const addr = (place.direccion || '').trim();
+    if(!addr) return null;
+    const cached = getCachedGeocode(addr);
+    if(cached) return [cached.lat, cached.lng];
+    const geo = await geocodeAddressNominatim(addr);
+    if(!geo) return null;
+    setCachedGeocode(addr, geo.lat, geo.lng);
+    await sleep(GEOCODE_DELAY_MS);
+    return [geo.lat, geo.lng];
+  }
+
+  function createPopupHtml(place){
+    const nombre = escapeHtml(place.nombre || 'Sin nombre');
+    const direccion = escapeHtml(place.direccion || '-');
+    const contacto = formatContact(place.contacto);
+    const horarios = escapeHtml(place.horarios || '-');
+    const horarios2Block = place.horarios2
+      ? '<div><span class="label">Horarios 2</span><span class="value">' + escapeHtml(place.horarios2) + '</span></div>'
+      : '';
+    const ta = escapeHtml(place.tarifaAdultos || '-');
+    const te = escapeHtml(place.tarifaExtranjeros || '-');
+    const ts = escapeHtml(place.tarifaEstudiantes || '-');
+    const destination = encodeURIComponent(place.direccion || place.nombre || '');
+    return (
+      '<div class="popup-content">\n' +
+      '  <h3>' + nombre + '</h3>\n' +
+      '  <div class="popup-table">\n' +
+      '    <div><span class="label">Dirección</span><span class="value">' + direccion + '</span></div>\n' +
+      '    <div><span class="label">Contacto</span><span class="value">' + contacto + '</span></div>\n' +
+      '    <div><span class="label">Horarios</span><span class="value">' + horarios + '</span></div>\n' +
+           horarios2Block + '\n' +
+      '    <div><span class="label">Tarifa Adultos</span><span class="value">' + ta + '</span></div>\n' +
+      '    <div><span class="label">Tarifa Extranjeros</span><span class="value">' + te + '</span></div>\n' +
+      '    <div><span class="label">Tarifa Estudiantes</span><span class="value">' + ts + '</span></div>\n' +
+      '  </div>\n' +
+      '  <a class="route-btn" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=' + destination + '">Cómo llegar</a>\n' +
+      '</div>'
+    );
+  }
+
+  // ------------------- Geocodificación (Nominatim) -------------------
+  async function geocodeAddressNominatim(address){
+    try {
+      const params = new URLSearchParams({ format: 'json', q: address, addressdetails: '0', limit: '1' });
+      const url = 'https://nominatim.openstreetmap.org/search?' + params.toString();
+      const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+      if(!res.ok) return null;
+      const data = await res.json();
+      if(!Array.isArray(data) || data.length === 0) return null;
+      const best = data[0];
+      const lat = toNumberOrNull(best.lat);
+      const lng = toNumberOrNull(best.lon);
+      if(lat == null || lng == null) return null;
+      return { lat, lng };
+    } catch(e){
+      console.warn('Geocoding error:', e);
+      return null;
+    }
+  }
+
+  function getCachedGeocode(address){
+    try {
+      const key = 'geocodeCache::' + address;
+      const raw = localStorage.getItem(key);
+      if(!raw) return null;
+      const obj = JSON.parse(raw);
+      if(typeof obj?.lat === 'number' && typeof obj?.lng === 'number') return obj;
+      return null;
+    } catch { return null; }
+  }
+
+  function setCachedGeocode(address, lat, lng){
+    try {
+      const key = 'geocodeCache::' + address;
+      localStorage.setItem(key, JSON.stringify({ lat: lat, lng: lng }));
+    } catch {}
+  }
+
+  // ------------------- Helpers -------------------
+  function generatePinIcon(hexColor){
+    const svg = (
+      '<svg xmlns="http://www.w3.org/2000/svg" width="25" height="41" viewBox="0 0 25 41">' +
+      '  <defs>' +
+      '    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">' +
+      '      <feGaussianBlur in="SourceAlpha" stdDeviation="1.5"/>' +
+      '      <feOffset dx="0" dy="1" result="offsetblur"/>' +
+      '      <feComponentTransfer>' +
+      '        <feFuncA type="linear" slope="0.35"/>' +
+      '      </feComponentTransfer>' +
+      '      <feMerge>' +
+      '        <feMergeNode/>' +
+      '        <feMergeNode in="SourceGraphic"/>' +
+      '      </feMerge>' +
+      '    </filter>' +
+      '  </defs>' +
+      '  <path filter="url(#shadow)" fill="' + hexColor.replace('#', '%23') + '" d="M12.5 0C5.596 0 0 5.596 0 12.5 0 20.938 12.5 41 12.5 41S25 20.938 25 12.5C25 5.596 19.404 0 12.5 0z"/>' +
+      '  <circle cx="12.5" cy="12.5" r="5.5" fill="%23ffffff"/>' +
+      '</svg>'
+    );
+    const url = 'data:image/svg+xml;utf8,' + svg;
+    return L.icon({ iconUrl: url, iconSize: [25,41], iconAnchor: [12,41], popupAnchor: [0,-34] });
+  }
+
+  function parseCSV(text){
+    const rows = [];
+    let i = 0, field = '', row = [], inQuotes = false;
+    while(i < text.length){
+      const char = text[i];
+      if(inQuotes){
+        if(char === '"'){
+          if(text[i+1] === '"') { field += '"'; i += 2; continue; }
+          else { inQuotes = false; i++; continue; }
+        } else { field += char; i++; continue; }
+      } else {
+        if(char === '"'){ inQuotes = true; i++; continue; }
+        if(char === ','){ row.push(field); field=''; i++; continue; }
+        if(char === '\n'){ row.push(field); rows.push(row); field=''; row=[]; i++; continue; }
+        if(char === '\r'){ i++; continue; }
+        field += char; i++;
+      }
+    }
+    if(field.length > 0 || row.length > 0){ row.push(field); rows.push(row); }
+    return rows;
+  }
+
+  function normalizeHeader(h){
+    return String(h || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+      .replace(/\s+/g, ' ');
+  }
+
+  function toNumberOrNull(v){
+    if(v == null) return null;
+    const n = Number(String(v).replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function isValidLat(n){ return typeof n === 'number' && n >= -90 && n <= 90; }
+  function isValidLng(n){ return typeof n === 'number' && n >= -180 && n <= 180; }
+
+  function parseCoordinatePair(text){
+    var s = String(text || '').trim().replace(/\s+/g,' ').replace(/[\[\]()]/g,'').replace(/\s*,\s*/g,',');
+    // Respeta orden forzado si aplica
+    if (FORCE_COORDINATE_ORDER === 'latlng' || FORCE_COORDINATE_ORDER === 'lnglat') {
+      var pf = s.split(/[,,\s]+/);
+      if (pf.length >= 2) {
+        var fa = toNumberOrNull(pf[0]);
+        var fb = toNumberOrNull(pf[1]);
+        if (fa != null && fb != null) return FORCE_COORDINATE_ORDER === 'latlng' ? [fa, fb] : [fb, fa];
+      }
+    }
+    // Intento directo "lat,lng" o "lat lng"
+    var parts = s.split(/[,,\s]+/);
+    if(parts.length === 2){
+      var pa = toNumberOrNull(parts[0]);
+      var pb = toNumberOrNull(parts[1]);
+      if(pa != null && pb != null){
+        var c1 = (isValidLat(pa) && isValidLng(pb)) ? [pa,pb] : null;
+        var c2 = (isValidLat(pb) && isValidLng(pa)) ? [pb,pa] : null;
+        if(c1 && !c2) return c1;
+        if(c2 && !c1) return c2;
+        if(BOUNDS_HINT && c1 && c2){
+          var in1 = isInsideBounds(c1[0], c1[1], BOUNDS_HINT);
+          var in2 = isInsideBounds(c2[0], c2[1], BOUNDS_HINT);
+          if(in1 && !in2) return c1;
+          if(in2 && !in1) return c2;
+        }
+        if(c1) return c1;
+      }
+    }
+    // Extrae par de números si el formato es libre
+    var matches = s.match(/[-+]?\d+(?:[.,]\d+)?/g);
+    if(matches && matches.length >= 2){
+      var a = toNumberOrNull(matches[0]);
+      var b = toNumberOrNull(matches[1]);
+      if(a != null && b != null){
+        var c1b = (isValidLat(a) && isValidLng(b)) ? [a,b] : null;
+        var c2b = (isValidLat(b) && isValidLng(a)) ? [b,a] : null;
+        if(c1b && !c2b) return c1b;
+        if(c2b && !c1b) return c2b;
+        if(BOUNDS_HINT && c1b && c2b){
+          var in1b = isInsideBounds(c1b[0], c1b[1], BOUNDS_HINT);
+          var in2b = isInsideBounds(c2b[0], c2b[1], BOUNDS_HINT);
+          if(in1b && !in2b) return c1b;
+          if(in2b && !in1b) return c2b;
+        }
+        if(c1b) return c1b;
+      }
+    }
+    return null;
+  }
+
+  function isInsideBounds(lat, lng, b){
+    if(!b) return true;
+    return lat >= b.minLat && lat <= b.maxLat && lng >= b.minLng && lng <= b.maxLng;
+  }
+
+  function sleep(ms){ return new Promise(res => setTimeout(res, ms)); }
+
+  function escapeHtml(str){
+    return String(str)
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#039;');
+  }
+
+  function isLikelyUrl(s){
+    try { const u = new URL(s.startsWith('http') ? s : ('https://' + s)); return !!u.host; } catch { return false; }
+  }
+
+  function isEmail(s){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s)); }
+
+  function telSanitize(s){ return String(s).replace(/[^+\d]/g, ''); }
+
+  function formatContact(raw){
+    const v = String(raw || '').trim();
+    if(!v) return '-';
+    if(isEmail(v)) return '<a href="mailto:' + escapeHtml(v) + '">' + escapeHtml(v) + '</a>';
+    if(isLikelyUrl(v)){
+      const href = v.startsWith('http') ? v : ('https://' + v);
+      return '<a href="' + escapeHtml(href) + '" target="_blank" rel="noopener">' + escapeHtml(v) + '</a>';
+    }
+    if(/\d{6,}/.test(v)){
+      const tel = telSanitize(v);
+      return '<a href="tel:' + tel + '">' + escapeHtml(v) + '</a>';
+    }
+    return escapeHtml(v);
+  }
+})();
+</script>
+
+
