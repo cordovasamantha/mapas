@@ -17,16 +17,11 @@ const DATA_MODE = 'csv'; // 'wordpress' | 'opensheet' | 'csv'
 const SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vSmJpHUjla_aC3_3PUrju45_EGkVzpel7GPXQpRHlbnt_00ECp-tzlBWKHBZX9JRq72-d87pPdYHL1M/pub?output=csv';
 
 // Color del pin (SVG)
-<<<<<<< HEAD
 const PIN_COLOR = '#272556';
-=======
-const PIN_COLOR = '#e21054';
->>>>>>> f163d1be3b809909837a7cea24b0e138f3d67d38
 
 // Retardo (ms) entre geocodificaciones para respetar Nominatim
 const GEOCODE_DELAY_MS = 900;
 
-<<<<<<< HEAD
 // Preferencia: si hay columna combinada "Coordenadas", usarla primero
 const PREFER_COORDINATE_FIELD = true;
 
@@ -36,8 +31,6 @@ const FORCE_COORDINATE_ORDER = 'auto';
 // Pista opcional de límites geográficos para resolver ambigüedad (ej. México)
 // Deja null si no quieres usarlo. Ejemplo MX: { minLat: 14, maxLat: 33, minLng: -118, maxLng: -86 }
 const BOUNDS_HINT = null;
-=======
->>>>>>> f163d1be3b809909837a7cea24b0e138f3d67d38
 // Centro y zoom inicial (se ajusta luego a los marcadores)
 const INITIAL_VIEW = { center: [19.4326, -99.1332], zoom: 5 }; // CDMX aprox.
 
@@ -65,10 +58,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Contenedor de marcadores para calcular límites
   const markersGroup = L.featureGroup().addTo(map);
   const allMarkers = [];
-<<<<<<< HEAD
   const infoBar = document.getElementById('infoBar');
-=======
->>>>>>> f163d1be3b809909837a7cea24b0e138f3d67d38
 
   // Fijar el icono por defecto para TODOS los marcadores
   L.Marker.prototype.options.icon = generatePinIcon(PIN_COLOR);
@@ -98,11 +88,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       try {
         marker.addTo(markersGroup);
         allMarkers.push({ marker, place });
-<<<<<<< HEAD
         // Actualiza barra inferior al hacer clic
         marker.on('click', () => updateInfoBar(place));
-=======
->>>>>>> f163d1be3b809909837a7cea24b0e138f3d67d38
         created++;
       } catch (e) {
         failed++;
@@ -115,16 +102,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Ajusta el mapa a los marcadores
     const bounds = markersGroup.getBounds();
     if (bounds.isValid()) {
-<<<<<<< HEAD
       // Si sólo hay un marcador, enfocar con zoom fijo (evita problemas de fitBounds en punto único)
       if (allMarkers.length === 1) {
         map.setView(allMarkers[0].marker.getLatLng(), 16);
       } else {
         map.fitBounds(bounds.pad(0.12));
       }
-=======
-      map.fitBounds(bounds.pad(0.12));
->>>>>>> f163d1be3b809909837a7cea24b0e138f3d67d38
     }
 
     // Arregla el tamaño del mapa si el contenedor cambia (p. ej., en WordPress)
@@ -144,7 +127,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // ------------------- Utilidades principales -------------------
 
-<<<<<<< HEAD
 function updateInfoBar(place) {
   if (!infoBar) return;
   const name = escapeHtml(String(place.nombre || '').trim());
@@ -155,8 +137,6 @@ function updateInfoBar(place) {
   infoBar.innerHTML = content;
 }
 
-=======
->>>>>>> f163d1be3b809909837a7cea24b0e138f3d67d38
 async function fetchCsv(url) {
   const res = await fetch(url, { mode: 'cors', redirect: 'follow' });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -220,13 +200,9 @@ function mapRowsToSchema(objs) {
   // Mapeo flexible de encabezados -> campos esperados
   const headerMap = {
     nombre: ['nombre', 'name'],
-<<<<<<< HEAD
     direccion: ['direccion', 'descripción', 'address', 'ubicacion', 'ubicación'],
     descripcion: ['descripcion', 'descripción', 'description', 'detalle', 'resumen'],
     coordenadas: ['coordenadas', 'coordinates', 'latlon', 'lonlat', 'coord', 'ubicacion coords'],
-=======
-    direccion: ['direccion', 'dirección', 'address', 'ubicacion', 'ubicación'],
->>>>>>> f163d1be3b809909837a7cea24b0e138f3d67d38
     contacto: ['contacto', 'contact', 'telefono', 'teléfono', 'email', 'correo', 'web', 'sitio', 'sitio web'],
     horarios: ['horarios', 'horario', 'hours', 'schedule'],
     horarios2: ['horarios 2', 'horarios2', 'hours 2', 'schedule 2'],
@@ -248,11 +224,8 @@ function mapRowsToSchema(objs) {
   return objs.map(o => ({
     nombre: pick(o, headerMap.nombre),
     direccion: pick(o, headerMap.direccion),
-<<<<<<< HEAD
     descripcion: pick(o, headerMap.descripcion),
     coordenadas: pick(o, headerMap.coordenadas),
-=======
->>>>>>> f163d1be3b809909837a7cea24b0e138f3d67d38
     contacto: pick(o, headerMap.contacto),
     horarios: pick(o, headerMap.horarios),
     horarios2: pick(o, headerMap.horarios2),
@@ -264,7 +237,6 @@ function mapRowsToSchema(objs) {
   }));
 }
 
-<<<<<<< HEAD
 function parseCoordinatePair(text) {
   // Limpia y normaliza el texto de entrada
   const s = String(text || '').trim()
@@ -384,27 +356,6 @@ async function getCoordsForPlace(place) {
   setCachedGeocode(addr, geo.lat, geo.lng);
   await sleep(GEOCODE_DELAY_MS);
   // Asegura el orden correcto para Leaflet
-=======
-async function getCoordsForPlace(place) {
-  // Usa lat/lng si están disponibles
-  const lat = toNumberOrNull(place.latitud);
-  const lng = toNumberOrNull(place.longitud);
-  if (lat != null && lng != null) return [lat, lng];
-
-  // Si no hay coords, intenta geocodificar la dirección
-  const addr = (place.direccion || '').trim();
-  if (!addr) return null;
-
-  const cached = getCachedGeocode(addr);
-  if (cached) return [cached.lat, cached.lng];
-
-  const geo = await geocodeAddressNominatim(addr);
-  if (!geo) return null;
-
-  setCachedGeocode(addr, geo.lat, geo.lng);
-  // Pequeño retardo entre peticiones para respetar al servicio
-  await sleep(GEOCODE_DELAY_MS);
->>>>>>> f163d1be3b809909837a7cea24b0e138f3d67d38
   return [geo.lat, geo.lng];
 }
 
@@ -589,7 +540,6 @@ function toNumberOrNull(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-<<<<<<< HEAD
 function isValidLat(n) { return typeof n === 'number' && n >= -90 && n <= 90; }
 function isValidLng(n) { return typeof n === 'number' && n >= -180 && n <= 180; }
 
@@ -598,8 +548,6 @@ function isInsideBounds(lat, lng, b) {
   return lat >= b.minLat && lat <= b.maxLat && lng >= b.minLng && lng <= b.maxLng;
 }
 
-=======
->>>>>>> f163d1be3b809909837a7cea24b0e138f3d67d38
 function sleep(ms) { return new Promise(res => setTimeout(res, ms)); }
 
 function escapeHtml(str) {
